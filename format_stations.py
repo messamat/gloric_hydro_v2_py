@@ -14,10 +14,6 @@ stations_qdat = os.path.join(stations_dir, 'grdc', 'q_day')
 #---- Data from Messager et al. 2021
 gires_stationsp = os.path.join(stations_dir, 'gires', 'gires.gdb', 'grdcstations_riverjoinedit')
 
-#---- Data from Doll et al. 2024
-dryver_newstations_raw = os.path.join(stations_dir, 'dryver', 'eu_stations_newgrdc_raw.shp')
-dryver_newstationsp = os.path.join(stations_dir, 'dryver', 'eu_stations_newgrdc_preprocessed.shp')
-
 #---- Data from HydroATLAS
 hydroriv = os.path.join(datdir, 'hydroatlas', 'HydroRIVERS_v10.gdb', 'HydroRIVERS_v10')
 up_area = os.path.join(datdir, 'hydroatlas', 'upstream_area_skm_15s.gdb', 'up_area_skm_15s')
@@ -37,6 +33,11 @@ grdcp_to_check_snap = "{}_snap_riverjoin".format(grdcp_to_check)
 grdcp_to_check_edit = "{}_snap_riverjoin_edit".format(grdcp_to_check)
 grdcp_merge = "{}_merged".format(grdcp_sub)
 grdcp_clean = "{}_clean".format(grdcp_sub)
+grdcp_cleanjoin = "{}_cleanjoin".format(grdcp_sub)
+
+grdcp_cleanjoin_tab = os.path.join(resdir, '{}.csv'.format(
+    os.path.split(grdcp_cleanjoin)[1]
+))
 
 #----------------------------------------- Analysis --------------------------------------------------------------------
 def create_points_from_pd(in_pd, x, y, scratch_dir, out_fc, crs, overwrite=True):
@@ -78,7 +79,7 @@ create_points_from_pd(in_pd=stations_sub_pd,
 
 #Identify grdc stations that have already been geographically QCed by Messager et al. 2021 or Doll et al. 2024 ----------------
 if not arcpy.Exists(grdcp_already_checked):
-    arcpy.Merge_management(inputs=[gires_stationsp, dryver_newstationsp],
+    arcpy.Merge_management(inputs=[gires_stationsp],
                            output=grdcp_already_checked,
                            add_source=True)
 
@@ -86,11 +87,10 @@ if not arcpy.Exists(grdcp_already_checked):
 if not arcpy.Exists(grdcp_to_check):
     arcpy.CopyFeatures_management(grdcp_sub, grdcp_to_check)
     gires_checked_list = {row[0] for row in arcpy.da.SearchCursor(grdcp_already_checked, 'GRDC_NO')}
-    dryver_checked_list = {row[0] for row in arcpy.da.SearchCursor(dryver_newstations_raw, 'grdc_no')}
 
     with arcpy.da.UpdateCursor(grdcp_to_check, 'grdc_no') as cursor:
         for row in cursor:
-            if (str(row[0]) in gires_checked_list) or (row[0] in dryver_checked_list):
+            if (str(row[0]) in gires_checked_list):
                 cursor.deleteRow()
 
 #Snap stations to nearest river reach in RiverAtlas
@@ -128,81 +128,45 @@ if not arcpy.Exists(grdcp_to_check_edit):
 #as long as within the same size and the same river, probably within a few kilometers, keep the station even
 #if we don't know the exact location. discharge will be normalized anyways -- the hydrographic looks the same
 
-#Merge to check and checked, then remove -1
+#Checked and included the small ones that were excluded in GIRES
+
+#Merge the ones "to check" and "checked", then remove -1
 if not arcpy.Exists(grdcp_merge):
-    arcpy.Merge_management([grdcp_to_check_edit, grdcp_already_checked],
-                           output=grdcp_merge)
+    arcpy.Merge_management([
+        sorted(getfilelist(pre_gdb, os.path.split(grdcp_to_check_edit)[1], gdbf=True))[-1],
+        grdcp_already_checked],
+        output=grdcp_merge)
 
 if not arcpy.Exists(grdcp_clean):
-    [f.name for f in arcpy.ListFields(grdcp_merge)]
+    arcpy.CopyFeatures_management(grdcp_merge, grdcp_clean)
+    with arcpy.da.UpdateCursor(grdcp_clean, ['manualsnap_mathis']) as cursor:
+        for row in cursor:
+            if row[0] == -1:
+                cursor.deleteRow()
 
-    with arcpy.da.UpdateCursor(grdcp_merge, ['manualsnap_mathis'])
+    ftodelete_list = [f.name for f in arcpy.ListFields(grdcp_clean) if f.name not in
+                      [arcpy.Describe(grdcp_clean).OIDFieldName, 'manualsnap_mathis', 'snap_comment_mathis', 'grdc_no',
+                       arcpy.Describe(grdcp_clean).shapeFieldName]]
+    arcpy.DeleteField_management(grdcp_clean, ftodelete_list)
 
+ #Delete all fields, re-snap, re-join, export table
+    if not arcpy.Exists(grdcp_cleanjoin):
+        arcpy.SpatialJoin_analysis(grdcp_clean, hydroriv, grdcp_cleanjoin,
+                                   join_operation='JOIN_ONE_TO_ONE', join_type="KEEP_ALL",
+                                   match_option='CLOSEST_GEODESIC', search_radius='100 meters',
+                                   distance_field_name='station_river_distance')
+        snapenv = [[hydroriv, 'EDGE', '100 meters']]
+        arcpy.edit.Snap(grdcp_cleanjoin, snapenv)
 
+        ExtractMultiValuesToPoints(in_point_features=grdcp_cleanjoin,
+                                   in_rasters=up_area,
+                                   bilinear_interpolate_values='NONE')
 
-if not arcpy.Exists(grdcpjoinedit):
-    arcpy.CopyFeatures_management(grdcpjoin, grdcpjoinedit)
+        arcpy.CalculateGeometryAttributes_management(in_features=grdcp_cleanjoin,
+                                                     geometry_property=[['x_geo', 'POINT_X'],
+                                                                        ['y_geo', 'POINT_Y']],
+                                                     coordinate_format='DD')
 
-#Delete all fields, re-snap, re-join, export table
+        CopyRows_pd(grdcp_cleanjoin, grdcp_cleanjoin_tab,
+                    fields_to_copy=[f.name for f in arcpy.ListFields(grdcp_cleanjoin)])
 
-
-
-################################################################# STUFF FROM OTHER PROJECTS ############################
-#Stations
-grdcstations = os.path.join(datdir, 'grdc_curated', 'high_qual_daily_stations.csv')
-grdc_disdatdir = os.path.join(datdir, 'GRDCdat_day')
-grdcp = os.path.join(outgdb, 'grdcstations')
-grdcpjoin = os.path.join(outgdb, 'grdcstations_riverjoin')
-grdcpclean = os.path.join(outgdb, 'grdcstations_clean')
-grdcpcleanjoin = os.path.join(outgdb, 'grdcstations_cleanjoin')
-basin5grdcpjoin = os.path.join(outgdb, 'BasinATLAS_v10_lev05_GRDCstations_join')
-
-#Create points for grdc stations
-if not arcpy.Exists(grdcp):
-    print('Create points for grdc stations')
-    stations_coords = {row[0]:[row[1], row[2], row[3]]
-                       for row in arcpy.da.SearchCursor(grdcstations, ['GRDC_NO', 'LONG_NEW', 'LAT_NEW', 'AREA'])}
-    arcpy.CreateFeatureclass_management(os.path.split(grdcp)[0], os.path.split(grdcp)[1],
-                                        geometry_type='POINT', spatial_reference=wgs84)
-    arcpy.AddField_management(grdcp, 'GRDC_NO', 'TEXT')
-    arcpy.AddField_management(grdcp, 'GRDC_AREA', 'DOUBLE')
-
-    with arcpy.da.InsertCursor(grdcp, ['GRDC_NO', 'GRDC_AREA', 'SHAPE@XY']) as cursor:
-        for k, v in stations_coords.items():
-            cursor.insertRow([k, v[2], arcpy.Point(v[0], v[1])])
-
-#Join grdc stations to nearest river reach in RiverAtlas
-if not arcpy.Exists(grdcpjoin):
-    print('Join grdc stations to nearest river reach in RiverAtlas')
-    arcpy.SpatialJoin_analysis(grdcp, riveratlas, grdcpjoin, join_operation='JOIN_ONE_TO_ONE', join_type="KEEP_COMMON",
-                               match_option='CLOSEST_GEODESIC', search_radius=0.0005,
-                               distance_field_name='station_river_distance')
-
-    arcpy.AddField_management(grdcpjoin, field_name='DApercdiff', field_type='FLOAT')
-    arcpy.CalculateField_management(grdcpjoin, field='DApercdiff',
-                                    expression='(!GRDC_AREA!-!UPLAND_SKM!)/!UPLAND_SKM!',
-                                    expression_type='PYTHON')
-
-#Check and correct all those that are more than 50 meters OR whose |DApercdiff| > 0.10
-if not arcpy.Exists(grdcpjoinedit):
-    arcpy.CopyFeatures_management(grdcpjoin, grdcpjoinedit)
-    arcpy.AddField_management(grdcpjoinedit, 'manualsnap_mathis', 'SHORT')
-    arcpy.AddField_management(grdcpjoinedit, 'snap_comment_mathis', 'TEXT')
-
-#Join grdc stations to nearest river reach in RiverAtlas
-if not arcpy.Exists(grdcpjoin):
-    print('Join grdc stations to nearest river reach in RiverAtlas')
-    arcpy.SpatialJoin_analysis(grdcp, riveratlas, grdcpjoin, join_operation='JOIN_ONE_TO_ONE', join_type="KEEP_COMMON",
-                               match_option='CLOSEST_GEODESIC', search_radius=0.0005,
-                               distance_field_name='station_river_distance')
-
-    arcpy.AddField_management(grdcpjoin, field_name='DApercdiff', field_type='FLOAT')
-    arcpy.CalculateField_management(grdcpjoin, field='DApercdiff',
-                                    expression='(!GRDC_AREA!-!UPLAND_SKM!)/!UPLAND_SKM!',
-                                    expression_type='PYTHON')
-
-#Check and correct all those that are more than 50 meters OR whose |DApercdiff| > 0.10
-if not arcpy.Exists(grdcpjoinedit):
-    arcpy.CopyFeatures_management(grdcpjoin, grdcpjoinedit)
-    arcpy.AddField_management(grdcpjoinedit, 'manualsnap_mathis', 'SHORT')
-    arcpy.AddField_management(grdcpjoinedit, 'snap_comment_mathis', 'TEXT')

@@ -15,6 +15,10 @@ import sys
 import xarray as xr
 import zipfile
 
+from bs4 import BeautifulSoup
+import ftplib
+from urllib.parse import *
+
 arcpy.CheckOutExtension('Spatial')
 arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
@@ -32,6 +36,9 @@ def get_root_fromsrcdir():
 rootdir = get_root_fromsrcdir()
 datdir = os.path.join(rootdir, 'data')
 resdir = os.path.join(rootdir, 'results')
+metadatdir = os.path.join(rootdir, 'data', 'metadata')
+if not os.path.exists(metadatdir):
+    os.mkdir(metadatdir)
 
 #------------------------------------------------ Utility functions ----------------------------------------------------
 def getwkspfiles(dir, repattern=None):
@@ -144,6 +151,49 @@ def unzip(infile):
         del zipf
     else:
         raise ValueError('Not a zip file')
+
+def standard_download_zip(in_url, out_rootdir, out_name):
+    download_dir = os.path.join(out_rootdir, out_name)
+    if not os.path.exists(download_dir):
+        os.mkdir(download_dir)
+
+    zip_path = os.path.join(download_dir, os.path.split(in_url)[1])
+    unzipped_path = os.path.splitext(zip_path)[0]
+    if not (os.path.exists(zip_path) or os.path.exists(unzipped_path)):
+        print(f"Downloading {Path(in_url).name}")
+        response = requests.get(in_url, verify=False)
+        with open(zip_path, "wb") as file:
+            # get request
+            file.write(response.content)
+    else:
+        print("{} already exists. Skipping...".format(unzipped_path))
+
+def list_ftpfiles(url):
+    urlp = urlparse(os.path.split(url)[0])
+    ftp = ftplib.FTP(urlp.netloc)
+    ftp.login()
+    ftp.cwd(urlp.path)
+
+    try:
+        files = ftp.nlst()
+    except ftplib.error_perm as resp:
+        if str(resp) == "550 No files found":
+            print("No files in this directory")
+        else:
+            raise
+    return(files)
+
+def get_ftpfile(url, outdir):
+    outfile=os.path.join(outdir, os.path.split(url)[1])
+    urlp = urlparse.urlparse(os.path.split(url)[0])
+    ftp = ftplib.FTP(urlp.netloc)
+    ftp.login()
+    ftp.cwd(urlp.path)
+
+    if not os.path.exists(outfile):
+        # Download it
+        with open(outfile, 'wb') as fobj:  # using 'w' as mode argument will create invalid zip files
+            ftp.retrbinary('RETR {}'.format(os.path.split(outfile)[1]), fobj.write)
 
 ###### MODIFIED FUNCTION FROM https://stackoverflow.com/questions/52081545/python-3-flattening-nested-dictionaries-and-lists-within-dictionaries
 # TO MAKE SURE EACH COMPRESSED KEY IS UNIQUE.

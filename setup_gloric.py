@@ -10,6 +10,7 @@ import pandas as pd
 from pathlib import Path
 import re
 import requests
+import time
 import traceback
 import sys
 import xarray as xr
@@ -345,3 +346,38 @@ def spatiotemporal_chunk_optimized_acrosstime(in_xr, lat_dimname='lat', lon_dimn
         lon_dimname: spatial_chunk_size
     }
     return(in_xr.chunk(chunks=kwargs))
+
+
+def fast_joinfield(in_data, in_field, join_table, join_field, fields, round=False, factor=1):
+    in_data_fields = [f.name for f in arcpy.ListFields(in_data)]
+    join_table_ftypes = {f.name: f.type for f in arcpy.ListFields(join_table)}
+
+    for f in fields:
+        fname_orig = f[0]  # Field name in join_table
+        fname_dest = f[1]  # Field name in destination table (in_data)
+        print(f'Adding {fname_orig} from {os.path.basename(join_table)} as {fname_dest} to {os.path.basename(in_data)}')
+
+        if fname_dest in in_data_fields:
+            print(f'{fname_dest} is already in the attribute table of {in_data}')
+        else:
+            #Build dictionary of all values to join
+            val_dict = {row[0]: row[1] for row in arcpy.da.SearchCursor(join_table, [join_field, fname_orig])}
+
+            #Determine output field type
+            if (round==False) or (join_table_ftypes[fname_orig] in ["Integer", "SmallInteger"]):
+                ftype_dest = join_table_ftypes[fname_orig]
+            else:
+                ftype_dest = 'LONG' if ((max(val_dict) > 32767) or (min(val_dict) < -32767)) else 'SHORT'
+
+            #Create field in destination table
+            arcpy.management.AddField(in_table=in_data,
+                                      field_name=fname_dest,
+                                      field_type=ftype_dest)
+
+            print('Writing in attri_tab')
+            with arcpy.da.UpdateCursor(in_data, [in_field, fname_dest]) as cursor:
+                for row in cursor:
+                    row[1] = factor*val_dict[row[0]]
+                    cursor.updateRow(row)
+
+

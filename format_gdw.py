@@ -169,11 +169,11 @@ for yr in range(1900, 2025, 5):
 #Create a copy of reservoirs to join point data from
 if not arcpy.Exists(gdw_poly_edit):
     arcpy.CopyFeatures_management(gdw_poly, gdw_poly_edit)
-    fast_joinfield(in_data=gdw_pt_edit,
+    fast_joinfield(in_data=gdw_poly_edit,
                    in_field='GDW_ID',
                    join_table=gdw_pt_edit,
                    join_field='GDW_ID',
-                   fields=yr_fn)
+                   fields=[[yr_fn,yr_fn]])
 
 #Rasterize reservoirs
 for yr in range(1900, 2025, 5):
@@ -185,22 +185,33 @@ for yr in range(1900, 2025, 5):
                                           where_clause="{0} <= {1}".format(yr_fn, yr))
         temp_ras = os.path.join(gdw_processgdb, 'temp_ras_{}'.format(yr))
         arcpy.CopyFeatures_management('gdw_yr', temp_ras)
-        print('Producing {}'.format(out_cap_ras))
-        arcpy.PolygonToRaster_conversion(in_features='gdw_lyr',
+
+        arcpy.PolygonToRaster_conversion(in_features=temp_ras,
                                          value_field='GDW_ID',
                                          out_rasterdataset=gdw_res_ras,
                                          cellsize=up_area)
         arcpy.Delete_management(temp_ras)
+        arcpy.Delete_management('gdw_yr')
 
-        zonal_dor = ZonalStatistics(in_zone_data=gdw_res_ras,
+        #Expand the reservoir rasters by one pixel because they sometimes don't overlap with network or have
+        #convoluted shapes that create holes with the raster resolution
+        res_exp = arcpy.ia.FocalStatistics(
+            in_raster=gdw_res_ras,
+            neighborhood="Rectangle 3 3 CELL",
+            statistics_type="MAJORITY",
+            ignore_nodata="DATA"
+        )
+
+        zonal_dor = ZonalStatistics(in_zone_data=res_exp,
                                     zone_field='Value',
                                     in_value_raster=out_dor_list[yr],
-                                    statistics_type='MAX'
+                                    statistics_type='MAXIMUM',
+                                    ignore_nodata="DATA"
                                     )
-        Con((IsNull(Raster(out_dor_list[yr]))),
+        Con(Raster(out_dor_list[yr])==0,
             zonal_dor,
             Raster(out_dor_list[yr])).save(out_dor_res)
 
         arcpy.Delete_management(zonal_dor)
         arcpy.Delete_management(gdw_res_ras)
-        arcpy.Delete_management('gdw_yr')
+

@@ -28,7 +28,7 @@ for lyr in getfilelist(ghsbuilt_dir,
         re.findall('GHS_BUILT_S_E([0-9]{4})_GLOBE_R2023A_4326_3ss_V1_0.tif$',
                    os.path.split(lyr)[1])[0]
     )
-    pop_raw_ts[yr] = lyr
+    built_raw_ts[yr] = lyr
 
 #Determine aggregation factor
 cellsize_ratio = arcpy.Describe(flowdir).meanCellWidth / arcpy.Describe(pop_raw_ts[2000]).meanCellWidth
@@ -45,22 +45,22 @@ pop_ag_dict = {}
 for yr in pop_raw_ts:
     out_pop_ag = os.path.join(ghspop_processgdb,
                               "{0}_aggregated".format(os.path.splitext(os.path.split(pop_raw_ts[yr])[1])[0]))
-    print("Aggregating {0} by a factor of {1}".format(pop_raw_ts[yr], int(round(cellsize_ratio))))
     if not arcpy.Exists(out_pop_ag):
+        print("Aggregating {0} by a factor of {1}".format(pop_raw_ts[yr], int(round(cellsize_ratio))))
         Aggregate(in_raster=pop_raw_ts[yr], cell_factor= int(round(cellsize_ratio)), aggregation_type='SUM'
                   ).save(out_pop_ag)
     pop_ag_dict[yr] = out_pop_ag
 
 #Accumulate pop downstream
 for yr in pop_ag_dict:
-    print(f"Running flow accumulation for {pop_ag_dict[yr]}")
     out_pop_acc = os.path.join(ghspop_processgdb,
                                "{0}_acc".format(os.path.splitext(os.path.split(pop_raw_ts[yr])[1])[0]))
     # Multiply input grid by pixel area
-    if not arcpy.exists(out_pop_acc):
+    if not arcpy.Exists(out_pop_acc):
+        print(f"Running flow accumulation for {pop_ag_dict[yr]}")
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
                                                in_weight_raster=Raster(pop_ag_dict[yr]),
-                                               data_type="LONG")
+                                               data_type="INTEGER")
         Plus(outFlowAccumulation, Raster(pop_ag_dict[yr])).save(out_pop_acc)
 
 #Aggregate built lu tiles
@@ -80,8 +80,8 @@ for yr in built_ag_dict:
     out_built_acc = os.path.join(ghsbuilt_processgdb,
                                "{0}_acc".format(os.path.splitext(os.path.split(built_raw_ts[yr])[1])[0]))
     # Multiply input grid by pixel area
-    if not arcpy.exists(out_built_acc):
+    if not arcpy.Exists(out_built_acc):
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
                                                in_weight_raster=Raster(built_ag_dict[yr]),
-                                               data_type="LONG")
+                                               data_type="INTEGER")
         Plus(outFlowAccumulation, Raster(built_ag_dict[yr])).save(out_built_acc)

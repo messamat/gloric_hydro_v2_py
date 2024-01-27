@@ -37,4 +37,4 @@ for yr in aei_raw_ts:
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
                                                in_weight_raster=Int(100*Raster(out_rsmpbi)),
                                                data_type="LONG")
-        Plus(outFlowAccumulation, Int(100*Raster(out_rsmpbi))).save(out_flowacc)
+        Int(Plus(outFlowAccumulation, Int(100*Raster(out_rsmpbi)))+0.5).save(out_flowacc)

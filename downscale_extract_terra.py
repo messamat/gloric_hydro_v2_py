@@ -28,33 +28,50 @@ stations_ws = f"{stations_formatted}_ws"
 #-------------------------------------- Define functions ---------------------------------------------------------------
 def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_resamplelyr,
                        pxarea_grid, uparea_grid, flowdir_grid, out_resdir, scratchgdb, integer_multiplier,
-                       in_location_data, id_field, out_tabdir, fieldroot,
-                       in_crs=4326, lat_dim='lat', lon_dim='lon', in_mask=None, save_raster=False, save_tab=True):
+                       in_location_data, id_field, out_tabdir, fieldroot, time_averaging_factor=None,
+                       time_averaging_function=None, in_crs=4326, lat_dim='lat', lon_dim='lon',
+                       in_mask=None, save_raster=False, save_tab=True):
 
     out_croppedintnc = os.path.join(out_resdir, f"{in_var}_croppedint.nc")
     LRpred_resgdb = os.path.join(out_resdir, f"{in_var}.gdb")
     pathcheckcreate(LRpred_resgdb)
 
+    #Read nc
     if isinstance(in_ncpath, list):
         pred_nc = xr.open_mfdataset(in_ncpath)
     elif isinstance(in_ncpath, str):
         pred_nc = xr.open_dataset(in_ncpath)
 
-    timesteps_list = [pd.to_datetime(t).strftime('%Y%d%m') for t in pred_nc['time'].values]
+    #Get resolution
+    nc_resolution = pred_nc.attrs['geospatial_lon_resolution']
+
+    # Aggregate over time to keep less time steps-----------------------------------------------------------------------
+    if time_averaging_factor is not None:
+        if time_averaging_factor > 1:
+            if time_averaging_function == 'mean':
+                pred_nc = pred_nc.resample(time=f'{time_averaging_factor}M', closed='left').mean()
+            elif time_averaging_function == 'sum':
+                pred_nc = pred_nc.resample(time=f'{time_averaging_factor}M', closed='left').sum()
+            else:
+                raise ValueError('time_averaging_function can either be mean or sum, otherwise need to edit the function')
+
+    #Get time step and output table names-------------------------------------------------------------------------------
+    timesteps_list = [pd.to_datetime(t).strftime('%Y%m%d') for t in pred_nc['time'].values]
     out_tablist = [os.path.join(out_tabdir, f"{in_var}_{ts}") for ts in timesteps_list]
 
-    cellsize_ratio = pred_nc.attrs['geospatial_lon_resolution'] / arcpy.Describe(in_template_resamplelyr).meanCellWidth
-
-    #the resolution residual left from aggregating or resampling
-    aggregate_residual = (pred_nc.attrs['geospatial_lon_resolution']
-                      - math.floor(cellsize_ratio) * arcpy.Describe(in_template_resamplelyr).meanCellWidth)
-    if not all([int(arcpy.GetRasterProperties_management(in_template_resamplelyr, "ROWCOUNT").getOutput(0))
-                *aggregate_residual<(arcpy.Describe(in_template_resamplelyr).meanCellHeight/2),
-            int(arcpy.GetRasterProperties_management(in_template_resamplelyr, "COLUMNCOUNT").getOutput(0))
-            * aggregate_residual  < (arcpy.Describe(in_template_resamplelyr).meanCellWidth / 2)]):
+    #Make sure the resolution of the NC is a multiple of the resolution of the template layer-----------------------
+    templ_desc =  arcpy.Describe(in_template_resamplelyr)
+    cellsize_ratio = nc_resolution / templ_desc.meanCellWidth
+    aggregate_residual = (nc_resolution - math.floor(cellsize_ratio) * templ_desc.meanCellWidth) #the resolution residual left from aggregating or resampling
+    if not all([(int(arcpy.GetRasterProperties_management(in_template_resamplelyr, "ROWCOUNT").getOutput(0))
+                 * aggregate_residual) < (templ_desc.meanCellHeight/2),
+                (int(arcpy.GetRasterProperties_management(in_template_resamplelyr, "COLUMNCOUNT").getOutput(0))
+                 * aggregate_residual)  < (templ_desc.meanCellWidth / 2)]):
         raise ValueError('Resampling would cause a shift in the raster because '
                          'the resolution of the netcdf and template layer are not multiples')
 
+    #Pre-format the netCDF to a file geodatabase raster that is ready to be resampled ----------------------------------
+    # (by masking it and adjusting its values)
     if not all([arcpy.Exists(out_tab) for out_tab in out_tablist]):
         #Crop netcdf to template extent and get minimum value within that extent
         templateext = arcpy.Describe(in_template_extentlyr).extent
@@ -66,7 +83,13 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
         #Get minimum value
         min_val = int(pred_nc_cropped.PDSI.min().compute() * integer_multiplier)
 
-        # Crop xarray and convert it to integer, making sure it only has positive values for flow accumulation
+        # Shift raster to positive values for running flow accumulation
+        if min_val < 0:
+            shiftval = -min_val
+        else:
+            shiftval = 0
+
+        # Crop xarray and convert it to integer, making sure it only has positive values for flow accumulation-------------------------
         out_croppedint = os.path.join(scratchgdb, f"{in_var}_croppedint")
         if not arcpy.Exists(out_croppedint):
             print(f"Producing {out_croppedintnc}")
@@ -93,36 +116,34 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
                                  cell_factor=round(cellsize_ratio),
                                  aggregation_type='MAXIMUM')
 
-            #Shift raster to positive values for running flow accumulation
-            if min_val < 0:
-                shiftval = -min_val
-            else:
-                shiftval = 0
-
             arcpy.env.mask = mask_agg
             Con(output_ras >= min_val, output_ras+shiftval).save(out_croppedint)
 
             #Clean up
-            arcpy.Delete_management(out_croppedintnc)
+            #arcpy.Delete_management(out_croppedintnc)
             arcpy.Delete_management(mask_agg)
             arcpy.Delete_management('tmpras_check')
             arcpy.ClearEnvironment("mask")
             arcpy.ClearEnvironment("snapRaster")
 
+        del pred_nc
+        del pred_nc_cropped
+
         # Set environment
         arcpy.env.extent = arcpy.env.snapRaster = in_template_resamplelyr
-        arcpy.env.parallelProcessingFactor = "50%"
 
-        # Resample
+        # Resample -----------------------------------------------------------------------------------------------------
         out_rsmpnear = os.path.join(pred_tabgdb, f"{in_var}_rsmpnear")
         if not arcpy.Exists(out_rsmpnear):
             print(f"Resampling {out_croppedintnc}")
             arcpy.management.Resample(in_raster=out_croppedint,
                                       out_raster=out_rsmpnear,
-                                      cell_size=arcpy.Describe(in_template_resamplelyr).MeanCellWidth,
+                                      cell_size=templ_desc.MeanCellWidth,
                                       resampling_type='NEAREST') #Go for nearestneighbor for speed
 
-        arcpy.env.mask = out_rsmpnear
+        #Iterate through all the bands to run flow accumulation and extract the accumulated value for each gauge-------
+        arcpy.env.mask = mask_ws_cont
+        arcpy.env.parallelProcessingFactor = '95%'
         for i in range(int(arcpy.management.GetRasterProperties(out_rsmpnear, 'BANDCOUNT').getOutput(0))):
             ts = timesteps_list[i]
 
@@ -137,11 +158,11 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
                 # Multiply input grid by pixel area
                 start = time.time()
                 valueXarea = Times(Raster(value_grid), Raster(pxarea_grid))
-                outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=out_rsmpnear,
+                outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir_grid,
                                                        in_weight_raster=Raster(valueXarea),
                                                        data_type="FLOAT")
                 outFlowAccumulation_2 = Plus(outFlowAccumulation, valueXarea)
-                UplandGrid = Int((Divide(outFlowAccumulation_2, Raster(uparea_grid))) + 0.5)
+                UplandGrid = Int((Divide(outFlowAccumulation_2, Raster(uparea_grid))) + 0.5)-shiftval
 
                 if save_raster:
                     UplandGrid.save(out_grid)
@@ -209,58 +230,64 @@ for var in unique_vars: #Using the list(dict.keys()) allows to slice it the keys
 
         if var == 'PDSI':
             integer_multiplier = 100
-        else:
+            in_avg_func = 'mean'
+        elif var == 'ppt':
             integer_multiplier = 1
+            in_avg_func = 'sum'
 
         if arcpy.Exists(final_csvtab):
             print("{} already exists...".format(final_csvtab))
 
         else :
             for continent in flowdir_griddict:
-                print(f'Processing {continent}...')
-                mask_ws_cont = os.path.join(scratchgdb_var, f'{os.path.split(stations_ws)[1]}_{continent}')
-                if not arcpy.Exists(mask_ws_cont):
-                    Con(Raster(flowdir_griddict[continent])>0,
-                        Raster(stations_ws)>0).save(mask_ws_cont)
+                if continent != 'gr':
+                    print(f'Processing {continent}...')
+                    mask_ws_cont = os.path.join(scratchgdb_var, f'{os.path.split(stations_ws)[1]}_{continent}')
+                    if not arcpy.Exists(mask_ws_cont):
+                        Con(Raster(flowdir_griddict[continent])>0,
+                            Raster(stations_ws)>0).save(mask_ws_cont)
 
-                # in_ncpath = nclist
-                # in_var = f"{var}_{continent}"
-                # in_template_extentlyr = flowdir_griddict[continent]
-                # in_template_resamplelyr = flowdir_griddict[continent]
-                # pxarea_grid = pxarea_grid
-                # uparea_grid = uparea_grid
-                # flowdir_grid = flowdir_griddict[continent]
-                # out_resdir = terra_resdir
-                # scratchgdb = scratchgdb_var
-                # integer_multiplier = integer_multiplier
-                # in_location_data = stations_formatted
-                # out_tabdir = scratchgdb_var
-                # id_field = 'grdc_no'
-                # fieldroot = var
-                # in_mask = mask_ws_cont
-                # save_raster = False
-                # save_tab = True
-                # lat_dim='lat'
-                # lon_dim='lon'
-                # in_crs = 4326
+                    # in_ncpath = nclist
+                    # in_var = f"{var}_{continent}"
+                    # in_template_extentlyr = flowdir_griddict[continent]
+                    # in_template_resamplelyr = flowdir_griddict[continent]
+                    # pxarea_grid = pxarea_grid
+                    # uparea_grid = uparea_grid
+                    # flowdir_grid = flowdir_griddict[continent]
+                    # out_resdir = terra_resdir
+                    # scratchgdb = scratchgdb_var
+                    # integer_multiplier = integer_multiplier
+                    # time_averaging_factor = 3
+                    # in_location_data = stations_formatted
+                    # out_tabdir = scratchgdb_var
+                    # id_field = 'grdc_no'
+                    # fieldroot = var
+                    # in_mask = mask_ws_cont
+                    # save_raster = False
+                    # save_tab = True
+                    # in_crs = 4326
+                    # lat_dim = 'lat'
+                    # lon_dim = 'lon'
 
-                out_tablist = flowacc_extract_nc(in_ncpath=nclist,
-                                                 in_var=f"{var}_{continent}",
-                                                 in_template_extentlyr=flowdir_griddict[continent],
-                                                 in_template_resamplelyr=flowdir_griddict[continent],
-                                                 pxarea_grid=pxarea_grid,
-                                                 uparea_grid=uparea_grid,
-                                                 flowdir_grid=flowdir_griddict[continent],
-                                                 out_resdir=terra_resdir,
-                                                 scratchgdb=scratchgdb_var,
-                                                 integer_multiplier=integer_multiplier,
-                                                 in_location_data=stations_formatted,
-                                                 out_tabdir = scratchgdb_var,
-                                                 id_field='grdc_no',
-                                                 fieldroot= var,
-                                                 in_mask=mask_ws_cont,
-                                                 save_raster=False,
-                                                 save_tab=True)
+                    out_tablist = flowacc_extract_nc(in_ncpath=nclist,
+                                                     in_var=f"{var}_{continent}",
+                                                     in_template_extentlyr=flowdir_griddict[continent],
+                                                     in_template_resamplelyr=flowdir_griddict[continent],
+                                                     pxarea_grid=pxarea_grid,
+                                                     uparea_grid=uparea_grid,
+                                                     flowdir_grid=flowdir_griddict[continent],
+                                                     out_resdir=terra_resdir,
+                                                     scratchgdb=scratchgdb_var,
+                                                     integer_multiplier=integer_multiplier,
+                                                     time_averaging_factor = 3,
+                                                     time_averaging_function = in_avg_func,
+                                                     in_location_data=stations_formatted,
+                                                     out_tabdir = scratchgdb_var,
+                                                     id_field='grdc_no',
+                                                     fieldroot= var,
+                                                     in_mask=mask_ws_cont,
+                                                     save_raster=False,
+                                                     save_tab=True)
 
             pred_nc = xr.open_dataset(LRpred_vardict[var][0])
             new_variable_name = re.sub('\\s', '_', list(pred_nc.variables)[-1])

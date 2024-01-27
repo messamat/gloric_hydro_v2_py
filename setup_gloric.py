@@ -4,6 +4,7 @@ from collections import defaultdict
 from datetime import date
 from inspect import getsourcefile
 import math
+import netCDF4
 import numpy as np
 import os
 import pandas as pd

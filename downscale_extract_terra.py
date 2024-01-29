@@ -29,12 +29,18 @@ stations_ws = f"{stations_formatted}_ws"
 def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_resamplelyr,
                        pxarea_grid, uparea_grid, flowdir_grid, out_resdir, scratchgdb, integer_multiplier,
                        in_location_data, id_field, out_tabdir, fieldroot, time_averaging_factor=None,
-                       time_averaging_function=None, in_crs=4326, lat_dim='lat', lon_dim='lon',
-                       in_mask=None, save_raster=False, save_tab=True):
+                       time_averaging_function=None, in_crs=4326, lat_dim='lat', lon_dim='lon', time_dim='time',
+                       in_mask=None, save_raster=False, save_tab=True, scratch_to_memory=True):
 
     out_croppedintnc = os.path.join(out_resdir, f"{in_var}_croppedint.nc")
     LRpred_resgdb = os.path.join(out_resdir, f"{in_var}.gdb")
     pathcheckcreate(LRpred_resgdb)
+
+    #Set scratch workspace to in_memory
+    if scratch_to_memory:
+        arcpy.env.scratchWorkspace = 'memory'
+    else:
+        arcpy.env.scratchWorkspace = scratchgdb
 
     #Read nc
     if isinstance(in_ncpath, list):
@@ -57,7 +63,7 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
 
     #Get time step and output table names-------------------------------------------------------------------------------
     timesteps_list = [pd.to_datetime(t).strftime('%Y%m%d') for t in pred_nc['time'].values]
-    out_tablist = [os.path.join(out_tabdir, f"{in_var}_{ts}") for ts in timesteps_list]
+    out_tablist = [os.path.join(out_tabdir, f"{in_var}_stats_{ts}") for ts in timesteps_list]
 
     #Make sure the resolution of the NC is a multiple of the resolution of the template layer-----------------------
     templ_desc =  arcpy.Describe(in_template_resamplelyr)
@@ -93,9 +99,10 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
         out_croppedint = os.path.join(scratchgdb, f"{in_var}_croppedint")
         if not arcpy.Exists(out_croppedint):
             print(f"Producing {out_croppedintnc}")
-            (pred_nc_cropped * integer_multiplier). \
-                astype(np.intc). \
-                to_netcdf(out_croppedintnc)
+            if not arcpy.Exists(out_croppedintnc):
+                (pred_nc_cropped * integer_multiplier). \
+                    astype(np.intc). \
+                    to_netcdf(out_croppedintnc)
 
             print(f"Saving {out_croppedintnc} to {out_croppedint} through mask")
             ncvar = re.split('_', in_var)[0]
@@ -104,7 +111,7 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
                                            x_dimension=lon_dim,
                                            y_dimension=lat_dim,
                                            out_raster_layer='tmpras_check',
-                                           band_dimension=list(pred_nc.dims)[2],
+                                           band_dimension=time_dim,
                                            value_selection_method='BY_INDEX',
                                            cell_registration='CENTER')
             output_ras = Raster('tmpras_check')
@@ -123,6 +130,7 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
             #arcpy.Delete_management(out_croppedintnc)
             arcpy.Delete_management(mask_agg)
             arcpy.Delete_management('tmpras_check')
+            arcpy.Delete_management(output_ras)
             arcpy.ClearEnvironment("mask")
             arcpy.ClearEnvironment("snapRaster")
 
@@ -159,7 +167,7 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
                 start = time.time()
                 valueXarea = Times(Raster(value_grid), Raster(pxarea_grid))
                 outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir_grid,
-                                                       in_weight_raster=Raster(valueXarea),
+                                                       in_weight_raster=valueXarea,
                                                        data_type="FLOAT")
                 outFlowAccumulation_2 = Plus(outFlowAccumulation, valueXarea)
                 UplandGrid = Int((Divide(outFlowAccumulation_2, Raster(uparea_grid))) + 0.5)-shiftval
@@ -183,6 +191,8 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
                                                 )
                 end = time.time()
                 print(end - start)
+
+                arcpy.Delete_management('memory')
 
     else:
         print("All tables already exists for {}".format(in_var))
@@ -220,7 +230,7 @@ pred_vardict = {os.path.splitext(os.path.split(f)[1])[0]: [f] for f in getfileli
 unique_vars = set([re.sub('(TerraClimate_)|(_[0-9]{4})', '', k) for k in pred_vardict])
 
 for var in unique_vars: #Using the list(dict.keys()) allows to slice it the keys
-    if var in ['PDSI', 'ppt']:
+    if var in ['PDSI']: #, 'ppt'
         scratchgdb_var = os.path.join(terra_resdir, 'scratch_{}.gdb'.format(var))
         pathcheckcreate(scratchgdb_var)
 
@@ -258,6 +268,7 @@ for var in unique_vars: #Using the list(dict.keys()) allows to slice it the keys
                     # scratchgdb = scratchgdb_var
                     # integer_multiplier = integer_multiplier
                     # time_averaging_factor = 3
+                    # time_averaging_function='mean'
                     # in_location_data = stations_formatted
                     # out_tabdir = scratchgdb_var
                     # id_field = 'grdc_no'
@@ -268,6 +279,8 @@ for var in unique_vars: #Using the list(dict.keys()) allows to slice it the keys
                     # in_crs = 4326
                     # lat_dim = 'lat'
                     # lon_dim = 'lon'
+                    # time_dim = 'time'
+                    # scratch_to_memory = True
 
                     out_tablist = flowacc_extract_nc(in_ncpath=nclist,
                                                      in_var=f"{var}_{continent}",
@@ -287,7 +300,8 @@ for var in unique_vars: #Using the list(dict.keys()) allows to slice it the keys
                                                      fieldroot= var,
                                                      in_mask=mask_ws_cont,
                                                      save_raster=False,
-                                                     save_tab=True)
+                                                     save_tab=True,
+                                                     scratch_to_memory = False)
 
             pred_nc = xr.open_dataset(LRpred_vardict[var][0])
             new_variable_name = re.sub('\\s', '_', list(pred_nc.variables)[-1])

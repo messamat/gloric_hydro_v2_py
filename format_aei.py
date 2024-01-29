@@ -10,9 +10,9 @@ pathcheckcreate(aei_processgdb)
 
 aei_raw_ts = {}
 for lyr in getfilelist(aei_dir,
-                       repattern='G_AEI_[0-9]{4].ASC$',
-                       gdbf=True):
-    yr = int(re.findall('G_AEI_([0-9]{4]).ASC$', os.path.split(lyr)[1])[0])
+                       repattern='^G_AEI_[0-9]{4}[.]ASC$',
+                       gdbf=False):
+    yr = int(re.findall('G_AEI_([0-9]{4})[.]ASC$', os.path.split(lyr)[1])[0])
     aei_raw_ts[yr] = lyr
 
 # Set environment
@@ -20,8 +20,9 @@ arcpy.env.extent = arcpy.env.snapRaster = flowdir
 # Resample
 for yr in aei_raw_ts:
     start = time.time()
+    rootname = os.path.splitext(os.path.split(aei_raw_ts[yr])[1])[0]
     out_rsmpbi = os.path.join(aei_processgdb,
-                              f"{os.path.split(aei_raw_ts[yr])[1]}_rsmpbi")
+                              f"{rootname}_rsmpbi")
 
     if not arcpy.Exists(out_rsmpbi):
         print(f"Resampling {aei_raw_ts[yr]}")
@@ -31,10 +32,12 @@ for yr in aei_raw_ts:
                                   resampling_type='BILINEAR')
 
     out_flowacc = os.path.join(aei_processgdb,
-                               f"{os.path.split(aei_raw_ts[yr])[1]}_acc")
+                               f"{rootname}_acc")
     if not arcpy.Exists(out_flowacc):
         print(f"Flow accumulating {out_rsmpbi}")
+        scaled_valueras = Raster(out_rsmpbi)/(400*100) #Conversion from 5 arc-min to 15 arc-sec resolution and from ha to km2
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
-                                               in_weight_raster=Int(100*Raster(out_rsmpbi)),
-                                               data_type="LONG")
-        Int(Plus(outFlowAccumulation, Int(100*Raster(out_rsmpbi)))+0.5).save(out_flowacc)
+                                               in_weight_raster=scaled_valueras,
+                                               data_type="FLOAT")
+        conv_factor = 100*100 #100*conversion from ratio to %
+        Int(conv_factor*(Plus(outFlowAccumulation, scaled_valueras)/Raster(up_area))+0.5).save(out_flowacc)

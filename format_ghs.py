@@ -90,6 +90,6 @@ for yr in built_ag_dict:
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
                                                in_weight_raster=scaled_valueras,
                                                data_type="FLOAT")
-        #conv_factor = 100*1000*100/1000000 #100*re-scaling*conversion from ratio to %/conversion from km2 to m2
-        Int((Plus(outFlowAccumulation, scaled_valueras)/Raster(up_area))+0.5).save(out_built_acc)
-        #The resulting raster is in 10 x % built extent - should be comprised between 0 and 1000
+        conv_factor = 100*1000*100/1000000 #100*re-scaling*conversion from ratio to %/conversion from km2 to m2
+        Int(conv_factor*(Plus(outFlowAccumulation, scaled_valueras)/Raster(up_area))+0.5).save(out_built_acc)
+        #The resulting raster is in 100 x % built extent - should be comprised between 0 and 1000

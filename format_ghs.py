@@ -4,6 +4,7 @@ ghspop_dir = os.path.join(datdir, 'anthropo', 'ghspop')
 ghsbuilt_dir = os.path.join(datdir, 'anthropo', 'ghsbuilt')
 
 flowdir = os.path.join(datdir, 'hydroatlas', 'flow_dir_15s_global.gdb', 'flow_dir_15s')
+up_area = os.path.join(datdir, 'hydroatlas', 'upstream_area_skm_15s.gdb', 'up_area_skm_15s')
 
 ghspop_processgdb = os.path.join(resdir, 'ghspop_processing.gdb')
 ghsbuilt_processgdb = os.path.join(resdir, 'ghsbuilt_processing.gdb')
@@ -31,11 +32,15 @@ for lyr in getfilelist(ghsbuilt_dir,
     built_raw_ts[yr] = lyr
 
 #Determine aggregation factor
-cellsize_ratio = arcpy.Describe(flowdir).meanCellWidth / arcpy.Describe(pop_raw_ts[2000]).meanCellWidth
+if 2000 in pop_raw_ts:
+    orig_res = arcpy.Describe(pop_raw_ts[2000]).meanCellWidth
+elif 2000 in built_raw_ts:
+    orig_res = arcpy.Describe(built_raw_ts[2000]).meanCellWidth
+
+cellsize_ratio = arcpy.Describe(flowdir).meanCellWidth / orig_res
 print('Aggregating worldpop by cell size ratio of {0} would lead to a difference in resolution of {1} m'.format(
     math.floor(cellsize_ratio),
-    111000 * (arcpy.Describe(flowdir).meanCellWidth - math.floor(cellsize_ratio) * arcpy.Describe(
-        pop_raw_ts[2000]).meanCellWidth)
+    111000 * (arcpy.Describe(flowdir).meanCellWidth - math.floor(cellsize_ratio) * orig_res)
 ))
 
 arcpy.env.snapRaster = flowdir
@@ -81,7 +86,10 @@ for yr in built_ag_dict:
                                "{0}_acc".format(os.path.splitext(os.path.split(built_raw_ts[yr])[1])[0]))
     # Multiply input grid by pixel area
     if not arcpy.Exists(out_built_acc):
+        scaled_valueras = Raster(built_ag_dict[yr])/1000
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
-                                               in_weight_raster=Raster(built_ag_dict[yr]),
-                                               data_type="INTEGER")
-        Plus(outFlowAccumulation, Raster(built_ag_dict[yr])).save(out_built_acc)
+                                               in_weight_raster=scaled_valueras,
+                                               data_type="FLOAT")
+        #conv_factor = 100*1000*100/1000000 #100*re-scaling*conversion from ratio to %/conversion from km2 to m2
+        Int((Plus(outFlowAccumulation, scaled_valueras)/Raster(up_area))+0.5).save(out_built_acc)
+        #The resulting raster is in 10 x % built extent - should be comprised between 0 and 1000

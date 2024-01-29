@@ -1,3 +1,5 @@
+import arcpy
+
 from setup_gloric import *
 
 pxarea_grid = os.path.join(datdir, 'hydroatlas', 'pixel_area_skm_15s.gdb', 'px_area_skm_15s')
@@ -192,7 +194,13 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
                 end = time.time()
                 print(end - start)
 
-                arcpy.Delete_management('memory')
+                if scratch_to_memory:
+                    arcpy.Delete_management('memory')
+                else:
+                    arcpy.Delete_management(valueXarea)
+                    arcpy.Delete_management(outFlowAccumulation)
+                    arcpy.Delete_management(outFlowAccumulation_2)
+                    arcpy.Delete_management(UplandGrid)
 
     else:
         print("All tables already exists for {}".format(in_var))
@@ -301,7 +309,7 @@ for var in unique_vars: #Using the list(dict.keys()) allows to slice it the keys
                                                      in_mask=mask_ws_cont,
                                                      save_raster=False,
                                                      save_tab=True,
-                                                     scratch_to_memory = False)
+                                                     scratch_to_memory = True)
 
             pred_nc = xr.open_dataset(LRpred_vardict[var][0])
             new_variable_name = re.sub('\\s', '_', list(pred_nc.variables)[-1])

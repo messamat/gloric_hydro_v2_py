@@ -1,3 +1,5 @@
+import arcpy
+
 from setup_gloric import *
 
 hyde_dir = os.path.join(datdir, 'anthropo', 'hyde')
@@ -29,17 +31,16 @@ for yr in hyde_raw_ts:
                               f"{rootname}_rsmpbi")
     cellsize_ratio = arcpy.Describe(hyde_raw_ts[yr]).meanCellWidth/templ_res
 
-    if not arcpy.Exists(out_rsmpbi):
-        print(f"Resampling {hyde_raw_ts[yr]}")
-        scaled_coarseras = Raster(hyde_raw_ts[yr])/(round(cellsize_ratio)**2) #Hydr is in km2, so divide by the number of cells that will be in each
-        arcpy.management.Resample(in_raster=scaled_coarseras,
-                                  out_raster=out_rsmpbi,
-                                  cell_size=arcpy.Describe(flowdir).MeanCellWidth,
-                                  resampling_type='BILINEAR')
-
-    out_flowacc = os.path.join(hyde_processgdb,
-                               f"{rootname}_acc")
+    out_flowacc = os.path.join(hyde_processgdb,  f"{rootname}_acc")
     if not arcpy.Exists(out_flowacc):
+        if not arcpy.Exists(out_rsmpbi):
+            print(f"Resampling {hyde_raw_ts[yr]}")
+            scaled_coarseras = Raster(hyde_raw_ts[yr])/(round(cellsize_ratio)**2) #Hydr is in km2, so divide by the number of cells that will be in each
+            arcpy.management.Resample(in_raster=scaled_coarseras,
+                                      out_raster=out_rsmpbi,
+                                      cell_size=arcpy.Describe(flowdir).MeanCellWidth,
+                                      resampling_type='BILINEAR')
+
         print(f"Flow accumulating {out_rsmpbi}")
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
                                                in_weight_raster=out_rsmpbi,
@@ -47,3 +48,4 @@ for yr in hyde_raw_ts:
         outFlowAccumulation_2 = Plus(outFlowAccumulation, out_rsmpbi)
         UplandGrid = Int(100*(Divide(outFlowAccumulation_2, Raster(up_area))) + 0.5)
         UplandGrid.save(out_flowacc)
+        

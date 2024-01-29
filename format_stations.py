@@ -23,8 +23,7 @@ pre_gdb = os.path.join(resdir, 'stations_preprocess.gdb')
 pathcheckcreate(pre_gdb)
 
 grdcp_all = os.path.join(pre_gdb, 'grdc_p_all')
-min_record_length = 20
-grdcp_sub = os.path.join(pre_gdb, 'grdc_p_o{}y'.format(min_record_length))
+grdcp_sub = os.path.join(pre_gdb, 'grdc_p_o{}y'.format(min_record_length)) #min_record_length in setup_gloric.py
 
 
 grdcp_already_checked = "{}_checked".format(grdcp_sub)

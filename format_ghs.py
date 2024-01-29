@@ -68,25 +68,23 @@ for yr in pop_ag_dict:
                                                data_type="INTEGER")
         Plus(outFlowAccumulation, Raster(pop_ag_dict[yr])).save(out_pop_acc)
 
-#Aggregate built lu tiles
-built_ag_dict = {}
-for yr in built_raw_ts:
-    out_built_ag = os.path.join(ghsbuilt_processgdb,
-                              "{0}_aggregated".format(os.path.splitext(os.path.split(built_raw_ts[yr])[1])[0]))
-    print("Aggregating {0} by a factor of {1}".format(built_raw_ts[yr], int(round(cellsize_ratio))))
-    if not arcpy.Exists(out_built_ag):
-        Aggregate(in_raster=built_raw_ts[yr], cell_factor= int(round(cellsize_ratio)), aggregation_type='SUM'
-                  ).save(out_built_ag)
-    built_ag_dict[yr] = out_built_ag
 
 #Accumulate built lu downstream
-for yr in built_ag_dict:
-    print(f"Running flow accumulation for {built_ag_dict[yr]}")
+for yr in built_raw_ts:
     out_built_acc = os.path.join(ghsbuilt_processgdb,
-                               "{0}_acc".format(os.path.splitext(os.path.split(built_raw_ts[yr])[1])[0]))
-    # Multiply input grid by pixel area
+                                 "{0}_acc".format(os.path.splitext(os.path.split(built_raw_ts[yr])[1])[0]))
     if not arcpy.Exists(out_built_acc):
-        scaled_valueras = Raster(built_ag_dict[yr])/1000
+        out_built_ag = os.path.join(ghsbuilt_processgdb,
+                                    "{0}_aggregated".format(os.path.splitext(os.path.split(built_raw_ts[yr])[1])[0]))
+        print("Aggregating {0} by a factor of {1}".format(built_raw_ts[yr], int(round(cellsize_ratio))))
+        if not arcpy.Exists(out_built_ag):
+            Aggregate(in_raster=built_raw_ts[yr], cell_factor= int(round(cellsize_ratio)), aggregation_type='SUM'
+                      ).save(out_built_ag)
+        built_raw_ts[yr] = out_built_ag
+
+        print(f"Running flow accumulation for {built_raw_ts[yr]}")
+        # Multiply input grid by pixel area
+        scaled_valueras = Raster(built_raw_ts[yr])/1000
         outFlowAccumulation = FlowAccumulation(in_flow_direction_raster=flowdir,
                                                in_weight_raster=scaled_valueras,
                                                data_type="FLOAT")

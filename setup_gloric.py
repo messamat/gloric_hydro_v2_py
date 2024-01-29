@@ -29,6 +29,9 @@ pyversion = sys.version_info
 if (pyversion.major == 3) and (pyversion.minor >= 7):
     sys.stdout.reconfigure(encoding='utf-8')
 
+#Parameters
+min_record_length = 20
+
 #Get current root directory
 def get_root_fromsrcdir():
     return(os.path.dirname(os.path.abspath(

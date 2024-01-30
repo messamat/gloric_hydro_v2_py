@@ -28,3 +28,8 @@ if not arcpy.Exists(anthropo_stats_tab):
            resampling_type='NEAREST',
            unique_id_field='grdc_no'
            )
+
+anthropo_stats_csv = os.path.join(resdir, f'{os.path.split(anthropo_stats_tab)[1]}.csv')
+if not arcpy.Exists(anthropo_stats_csv):
+    arcpy.CopyRows_management(anthropo_stats_tab,
+                              anthropo_stats_csv)

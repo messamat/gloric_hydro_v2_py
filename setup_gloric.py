@@ -157,13 +157,16 @@ def unzip(infile):
     else:
         raise ValueError('Not a zip file')
 
-def standard_download_zip(in_url, out_rootdir, out_name):
-    download_dir = os.path.join(out_rootdir, out_name)
-    if not os.path.exists(download_dir):
-        os.mkdir(download_dir)
+def standard_download_zip(in_url, out_rootdir, out_name=None):
+    if not os.path.exists(out_rootdir):
+        os.mkdir(out_rootdir)
 
-    zip_path = os.path.join(download_dir, os.path.split(in_url)[1])
+    if not out_name:
+        zip_path = os.path.join(out_rootdir, os.path.split(in_url)[1])
+    else:
+        zip_path = os.path.join(out_rootdir, out_name)
     unzipped_path = os.path.splitext(zip_path)[0]
+
     if not (os.path.exists(zip_path) or os.path.exists(unzipped_path)):
         print(f"Downloading {Path(in_url).name}")
         response = requests.get(in_url, verify=False)

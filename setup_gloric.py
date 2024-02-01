@@ -15,13 +15,15 @@ import time
 import traceback
 import sys
 import xarray as xr
-import zipfile
+import xmltodict
+from flatten_dict import flatten
 
 from bs4 import BeautifulSoup
 import ftplib
 from urllib.parse import *
 
 arcpy.CheckOutExtension('Spatial')
+arcpy.CheckOutExtension("Network")
 arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
 

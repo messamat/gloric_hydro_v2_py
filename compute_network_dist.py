@@ -226,4 +226,6 @@ if not arcpy.Exists(global_netdist_tab):
             overwrite=False,
             in_destination_points=None)
 
-    arcpy.Merge_management(out_tablist, output=global_netdist_tab, add_source='ADD_SOURCE_INFO')
+    arcpy.Merge_management(list(out_tablist.values()),
+                           output=global_netdist_tab,
+                           add_source='ADD_SOURCE_INFO')

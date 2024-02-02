@@ -9,25 +9,31 @@ import numpy as np
 import os
 import pandas as pd
 from pathlib import Path
+import random
 import re
 import requests
 import time
 import traceback
 import sys
 import xarray as xr
-import zipfile
+import xmltodict
+from flatten_dict import flatten
 
 from bs4 import BeautifulSoup
 import ftplib
 from urllib.parse import *
 
 arcpy.CheckOutExtension('Spatial')
+arcpy.CheckOutExtension("Network")
 arcpy.env.overwriteOutput = True
 arcpy.env.qualifiedFieldNames = False
 
 pyversion = sys.version_info
 if (pyversion.major == 3) and (pyversion.minor >= 7):
     sys.stdout.reconfigure(encoding='utf-8')
+
+#Parameters
+min_record_length = 20
 
 #Get current root directory
 def get_root_fromsrcdir():
@@ -154,13 +160,16 @@ def unzip(infile):
     else:
         raise ValueError('Not a zip file')
 
-def standard_download_zip(in_url, out_rootdir, out_name):
-    download_dir = os.path.join(out_rootdir, out_name)
-    if not os.path.exists(download_dir):
-        os.mkdir(download_dir)
+def standard_download_zip(in_url, out_rootdir, out_name=None):
+    if not os.path.exists(out_rootdir):
+        os.mkdir(out_rootdir)
 
-    zip_path = os.path.join(download_dir, os.path.split(in_url)[1])
+    if not out_name:
+        zip_path = os.path.join(out_rootdir, os.path.split(in_url)[1])
+    else:
+        zip_path = os.path.join(out_rootdir, out_name)
     unzipped_path = os.path.splitext(zip_path)[0]
+
     if not (os.path.exists(zip_path) or os.path.exists(unzipped_path)):
         print(f"Downloading {Path(in_url).name}")
         response = requests.get(in_url, verify=False)
@@ -381,4 +390,78 @@ def fast_joinfield(in_data, in_field, join_table, join_field, fields, round=Fals
                     row[1] = factor*val_dict[row[0]]
                     cursor.updateRow(row)
 
+
+#Take the extent from a dataset and return the extent in the projection of choice
+def project_extent(in_dataset, out_coor_system, out_dataset=None):
+    """
+    :param in_dataset: dataset whose extent to project
+    :param out_coor_system: output coordinate system for extent (this can also be a dataset whose CS will be used)
+    :param out_dataset (optional): path to dataset that will contain projected extent as a point-based bounding box
+                                    (otherwise, output dataset is written to scratch gdb and deleted)
+    :return: extent object of in_dataset in out_coor_system projection
+    """
+    # Create multipoint geometry with extent
+    modext = arcpy.Describe(in_dataset).extent
+
+    modtilebbox = arcpy.Polygon(
+        arcpy.Array([modext.lowerLeft, modext.lowerRight, modext.upperLeft, modext.upperRight,
+                     modext.lowerRight,modext.lowerLeft, modext.upperLeft]),
+        arcpy.Describe(in_dataset).spatialReference)
+
+    # Project extent
+    if not out_dataset==None:
+        outext = arcpy.Describe(
+            arcpy.Project_management(in_dataset=modtilebbox,
+                                     out_dataset=out_dataset,
+                                     out_coor_system=arcpy.Describe(out_coor_system).spatialReference)).extent
+    else:
+        out_dataset=os.path.join(arcpy.env.scratchWorkspace, 'extpoly{}'.format(random.randrange(1000)))
+
+        if isinstance(out_coor_system, str):
+            ref_crs = arcpy.Describe(out_coor_system).spatialReference
+        else:
+            ref_crs = out_coor_system
+
+        outext = arcpy.Describe(
+            arcpy.Project_management(in_dataset=modtilebbox,
+                                     out_dataset=out_dataset,
+                                     out_coor_system=ref_crs)).extent
+        arcpy.Delete_management(out_dataset)
+
+    return(outext)
+
+#Given an input extent and a comparison list of datasets, return a new list with only those datasets that intersect
+#extent polygon (overlp, touch, or within)
+def get_inters_tiles(ref_extent, tileiterator, containsonly=False):
+    outlist = []
+
+    # If tile iterator is a list of paths
+    if isinstance(tileiterator, list) or isinstance(tileiterator, set):
+        for i in tileiterator:
+            tileext = arcpy.Describe(i).extent
+
+            if containsonly==True and tileext.contains(ref_extent):
+                outlist.append(i)
+
+            elif tileext.overlaps(ref_extent) or tileext.touches(ref_extent) \
+                    or tileext.within(ref_extent) or tileext.contains(ref_extent):
+                outlist.append(i)
+
+    #if tile iterator is a dictionary of extents, append key
+    elif isinstance(tileiterator, dict):
+        for k, v in tileiterator.items():
+            # print(k)
+            # print(v)
+            if containsonly==True and v.contains(ref_extent):
+                outlist.append(k)
+
+            elif v.overlaps(ref_extent) or v.touches(ref_extent) \
+                    or v.within(ref_extent) or v.contains(ref_extent):
+                outlist.append(k)
+
+    else:
+        raise ValueError('tileiterator is neither a list, a set, nor a dict')
+
+    #If tile iterator is a dictionary
+    return(outlist)
 

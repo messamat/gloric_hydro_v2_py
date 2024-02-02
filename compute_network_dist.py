@@ -15,7 +15,7 @@ global_netdist_tab = os.path.join(resdir, f"{os.path.split(grdcp_cleanjoin)[1]}_
 global_geodist_tab = os.path.join(resdir, f"{os.path.split(grdcp_cleanjoin)[1]}_geodist_tab.csv")
 
 #---- test
-# cont = 'au'
+# cont = 'af'
 # net_raw = os.path.join(hydroriv_dir, f'HydroRIVERS_v10_{cont}.gdb', f'HydroRIVERS_v10_{cont}')
 # in_net = net_raw
 # in_points = grdcp_cleanjoin
@@ -153,7 +153,7 @@ def get_netdist_matrix(in_net, in_points, in_template, out_gdb, max_netdist, sna
                 # Save the solved OD cost matrix layer as a layer file on disk
                 if verbose:
                     print(f'---- Format tables')
-                output_layer_file = os.path.join(resdir, f'odmatrix_lines_{in_net_basename}.lyrx')
+                output_layer_file = os.path.join(resdir, f'odmatrix_lines_{in_net_basename}_{travel_mode}.lyrx')
                 {lyr.name: lyr for lyr in layer_object.listLayers()}['Lines'].saveACopy(output_layer_file)
                 arcpy.CopyRows_management(output_layer_file, output_tab_travelmode)
 
@@ -167,6 +167,7 @@ def get_netdist_matrix(in_net, in_points, in_template, out_gdb, max_netdist, sna
                             cursor.updateRow(row)
 
                 arcpy.ClearEnvironment('workspace')
+                del od_obj
                 arcpy.Delete_management(layer_object)
                 arcpy.Delete_management(output_layer_file)
 
@@ -174,8 +175,6 @@ def get_netdist_matrix(in_net, in_points, in_template, out_gdb, max_netdist, sna
 
         #Merge tables and delete them
         arcpy.Merge_management(tab_list, output_tab)
-        for tab in tab_list:
-            arcpy.Delete_management(tab)
 
     return (output_tab)
 
@@ -229,3 +228,5 @@ if not arcpy.Exists(global_netdist_tab):
     arcpy.Merge_management(list(out_tablist.values()),
                            output=global_netdist_tab,
                            add_source='ADD_SOURCE_INFO')
+    arcpy.CopyRows_management(os.path.splitext(global_netdist_tab)[0], global_netdist_tab)
+    arcpy.Delete_management(global_netdist_tab)

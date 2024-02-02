@@ -41,8 +41,13 @@ if not arcpy.Exists(landsat_subice):
                                        & (riverice_df['cloud_fraction']<=0.25)
                                        )]
 
-    riverice_95perc = riverice_df_sub.groupby(['ROW', 'PATH'])['river_ice_fraction'].quantile(.95).reset_index()
+    riverice_95perc = riverice_df_sub.groupby(['ROW', 'PATH'])['river_ice_fraction'].quantile(.95).\
+        reset_index().\
+        rename(columns={'river_ice_fraction':'ice95perc'})
 
+    riverice_95perc_merge = pd.merge(riverice_df_sub, riverice_95perc, how='left', on=['ROW', 'PATH'])
+    riverice_95perc_merge.loc[riverice_95perc_merge['ice95perc'] >=0.1].to_csv(
+        os.path.join(resdir, 'global_river_ice_dataset_sub.csv'))
 
     subtiles = set(riverice_95perc["PATH"].astype(str) + '_' + riverice_95perc["ROW"].astype(str))
 
@@ -53,7 +58,7 @@ if not arcpy.Exists(landsat_subice):
             if f'{row[0]}_{row[1]}' in subtiles:
                 row[2] =  riverice_95perc.loc[
                     (riverice_95perc['PATH']==row[0]) & (riverice_95perc['ROW']==row[1]),
-                    'river_ice_fraction'].values[0]
+                    'ice95perc'].values[0]
                 cursor.updateRow(row)
 
 #Join gauges to tiles
@@ -65,6 +70,8 @@ if not arcpy.Exists(grdcp_landsatjoin):
                                join_operation='JOIN_ONE_TO_MANY',
                                join_type='KEEP_COMMON',
                                match_option='WITHIN')
+    arcpy.CopyRows_management(grdcp_landsatjoin,
+                              os.path.join(resdir, f'{os.path.split(grdcp_landsatjoin)[1]}.csv'))
 
 if not arcpy.Exists(landsat_grdcp_sub):
     arcpy.MakeFeatureLayer_management(landsat_subice, 'landsat_subice_lyr',

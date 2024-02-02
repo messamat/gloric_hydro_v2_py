@@ -27,7 +27,11 @@ pathcheckcreate(path=pred_tabgdb , verbose=True)
 
 stations_ws = f"{stations_formatted}_ws"
 
-#-------------------------------------- Define functions ---------------------------------------------------------------
+#-------------------------------------- Get temperature data at the location of stations --------------------------------
+
+
+
+#-------------------------------------- Define functions for upstream analysis -----------------------------------------
 def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_resamplelyr,
                        pxarea_grid, uparea_grid, flowdir_grid, out_resdir, scratchgdb, integer_multiplier,
                        in_location_data, id_field, out_tabdir, fieldroot, time_averaging_factor=None,
@@ -205,6 +209,8 @@ def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_res
     else:
         print("All tables already exists for {}".format(in_var))
 
+    arcpy.ResetEnvironments()
+
     return(out_tablist)
 
 def get_LRpred_pd(in_gdbtab, in_fieldroot, in_dtype, last_col=False):
@@ -311,50 +317,19 @@ for var in unique_vars: #Using the list(dict.keys()) allows to slice it the keys
                                                      save_tab=True,
                                                      scratch_to_memory = True)
 
-            pred_nc = xr.open_dataset(LRpred_vardict[var][0])
-            new_variable_name = re.sub('\\s', '_', list(pred_nc.variables)[-1])
-            out_tablist = [os.path.join(LRpred_tabgdb, f'{in_var_formatted}_{i + 1}') for i in
-                           range(pred_nc.coords.dims['Time (Month)'])]
+            out_tablist = getfilelist(scratchgdb_var, "{0}_[a-z]{1}_stats_[0-9]{2}$".format(var, "{2}", "{8}"))
 
-            if all([arcpy.Exists(out_tab) for out_tab in out_tablist]):
-                print("Concatenating tables...")
-                out_tab = get_LRpred_pd(in_gdbtab=out_tablist[0],
-                                        in_fieldroot=var,
-                                        in_dtype=np.int32)
+            #if all([arcpy.Exists(out_tab) for out_tab in out_tablist]):
+            print("Concatenating tables...")
+            for in_tab in out_tablist[1:]:
+                temp_tab = get_LRpred_pd(in_gdbtab=in_tab,
+                                         in_fieldroot=var,
+                                         in_dtype=np.int32,
+                                         last_col=True)
+                if len(temp_tab) == len(out_tab):
+                    out_tab = pd.concat([out_tab, temp_tab], axis=1)
+                else:
+                    raise Exception("gdb table is not the same length as main table")
 
-                invar_types = {'qrdifoverql': np.int32,
-                               'wetdays': np.int16}
-
-                for in_tab in out_tablist[1:]:
-                    temp_tab = get_LRpred_pd(in_gdbtab=in_tab,
-                                             in_fieldroot=var,
-                                             in_dtype=invar_types[fieldroot],
-                                             last_col=True)
-                    if len(temp_tab) == len(out_tab):
-                        out_tab = pd.concat([out_tab, temp_tab], axis=1)
-                    else:
-                        raise Exception("gdb table is not the same length as main table")
-
-                print("Writing out {}...".format(final_csvtab))
-                out_tab.to_csv(final_csvtab)
-
-
-########################
-# for ts in pred_vardict :
-#     if re.findall('PDSI', ts):
-#         pred_vardict[ts].append(pow(10,2))
-#     else:
-#         pred_vardict[ts].append(1)
-# for ts in pred_vardict:
-#     pred_vardict[ts].append(re.sub('(TerraClimate_)|(_[0-9]{4})', '', ts))
-#     pred_vardict[ts].append(int(re.findall('.*([0-9]{4})', ts)[0]))
-
-
-
-
-#
-#
-#
-#
-#         # arcpy.Delete_management(out_croppedint)
-#         # arcpy.Delete_management(out_rsmpbi)
+            print("Writing out {}...".format(final_csvtab))
+            out_tab.to_csv(final_csvtab)

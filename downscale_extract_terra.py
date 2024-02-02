@@ -14,6 +14,8 @@ pdsi_dir = os.path.join(terra_dir, 'pdsi')
 ppt_dir = os.path.join(terra_dir, 'ppt')
 def_dir = os.path.join(terra_dir, 'def')
 swe_dir = os.path.join(terra_dir, 'swe')
+tmin_dir = os.path.join(terra_dir, 'tmin')
+tmax_dir = os.path.join(terra_dir, 'tmax')
 
 terra_resdir = os.path.join(resdir, 'terra')
 pathcheckcreate(terra_resdir)
@@ -21,15 +23,37 @@ pathcheckcreate(terra_resdir)
 stations_gdb = os.path.join(resdir, 'stations_preprocess.gdb')
 stations_formatted = getfilelist(stations_gdb, 'grdc_p_o[0-9]*y_cleanjoin$', gdbf=True)[0]
 
-# Create gdb for WaterGAP time-series predictors
+# Create gdb
 pred_tabgdb = os.path.join(terra_resdir, 'terra_tabs.gdb')
 pathcheckcreate(path=pred_tabgdb , verbose=True)
 
+#Output layers
 stations_ws = f"{stations_formatted}_ws"
 
 #-------------------------------------- Get temperature data at the location of stations --------------------------------
+#Make a simple point dataframe from the stations
+gpoints_dict = pd.DataFrame.from_dict(
+    {row[0]:(row[1], row[2])
+     for row in arcpy.da.SearchCursor(stations_formatted, ['grdc_no', 'x_geo', 'y_geo'])},
+    orient='index',
+    columns=['x_geo', 'y_geo']). \
+    reset_index(). \
+    rename(columns={'index': 'grdc_no'})
 
-
+for var in ['tmin', 'tmax']:
+    out_tab = os.path.join(resdir, f'{os.path.split(stations_formatted)[1]}_terra_{var}.csv')
+    if not arcpy.Exists(out_tab):
+        print(f'Extracting {var} and writing {out_tab}')
+        t_filelist = getfilelist(os.path.join(terra_dir, var), 'TerraClimate_tm(in|ax)_[0-9]{4}[.]nc$')
+        t_xr = xr.open_mfdataset(t_filelist)
+        gauges_t_df = extract_xr_by_point(in_xr=t_xr,
+                                          in_pointdf=gpoints_dict,
+                                          in_df_id='grdc_no',
+                                          in_xr_lon_dimname='lon', in_xr_lat_dimname='lat',
+                                          in_df_lon_dimname='x_geo', in_df_lat_dimname='y_geo'
+                                          )
+        gauges_t_df.to_csv(os.path.join(resdir, f'{os.path.split(stations_formatted)[1]}_terra_{var}.csv'),
+                           index=False)
 
 #-------------------------------------- Define functions for upstream analysis -----------------------------------------
 def flowacc_extract_nc(in_ncpath, in_var, in_template_extentlyr, in_template_resamplelyr,

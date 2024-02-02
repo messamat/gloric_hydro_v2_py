@@ -6,6 +6,11 @@ RiverATLAS_url = "https://figshare.com/ndownloader/files/20087321"
 zip_path_HydroRIVERS = os.path.join(datdir, 'hydroatlas', 'HydroRIVERS_v10.gdb.zip')
 zip_path_RiverATLAS = os.path.join(datdir, 'hydroatlas', 'RiverATLAS_Data_v10.gdb.zip')
 
+#Download global HydroSHEDS DEM
+standard_download_zip("https://data.hydrosheds.org/file/hydrosheds-v1-dem/hyd_glo_dem_15s.zip",
+                      out_rootdir=os.path.join(datdir, 'hydroatlas')
+                      )
+
 #Download continential hydrorivers
 continent_dir = os.path.join(datdir, 'hydroatlas', 'hydrorivers_cont')
 pathcheckcreate(continent_dir)

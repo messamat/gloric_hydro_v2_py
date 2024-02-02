@@ -12,13 +12,18 @@ pdsi_dir = os.path.join(terra_dir, 'pdsi')
 ppt_dir = os.path.join(terra_dir, 'ppt')
 def_dir = os.path.join(terra_dir, 'def')
 swe_dir = os.path.join(terra_dir, 'swe')
+tmin_dir = os.path.join(terra_dir, 'tmin')
+tmax_dir = os.path.join(terra_dir, 'tmax')
+
 
 pathcheckcreate(pdsi_dir)
 pathcheckcreate(ppt_dir)
 pathcheckcreate(def_dir)
 pathcheckcreate(swe_dir)
+pathcheckcreate(tmin_dir)
+pathcheckcreate(tmax_dir)
 
-for suffix in ['swe']: #'ppt', 'def', 'swe'
+for suffix in ['tmax']: #'ppt', 'def', 'swe'
     for yr in range(1958, 2023):
         in_url ='https://climate.northwestknowledge.net/TERRACLIMATE-DATA/TerraClimate_{0}_{1}.nc'.format(suffix, yr)
         out_dir = os.path.join(terra_dir, suffix.lower())

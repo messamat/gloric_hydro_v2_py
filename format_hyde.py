@@ -1,4 +1,5 @@
 import arcpy
+#https://public.yoda.uu.nl/geo/UU01/MO2FF3.html
 
 from setup_gloric import *
 

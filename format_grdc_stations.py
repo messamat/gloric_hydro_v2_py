@@ -6,6 +6,8 @@ wgs84 = arcpy.SpatialReference(4326)
 
 #----------------------------------------- Input variables -------------------------------------------------------------
 stations_dir = os.path.join(datdir, 'gauges')
+pre_gdb = os.path.join(resdir, 'stations_preprocess.gdb')
+pathcheckcreate(pre_gdb)
 
 #---- Original data from GRDC
 stations_xltab = os.path.join(stations_dir, 'grdc', 'GRDC_Stations.xlsx')
@@ -18,10 +20,10 @@ gires_stationsp = os.path.join(stations_dir, 'gires', 'gires.gdb', 'grdcstations
 hydroriv = os.path.join(datdir, 'hydroatlas', 'HydroRIVERS_v10.gdb', 'HydroRIVERS_v10')
 up_area = os.path.join(datdir, 'hydroatlas', 'upstream_area_skm_15s.gdb', 'up_area_skm_15s')
 
-#----------------------------------------- Output variables ------------------------------------------------------------
-pre_gdb = os.path.join(resdir, 'stations_preprocess.gdb')
-pathcheckcreate(pre_gdb)
+#---- Others already checked
+others_checked = os.path.join(pre_gdb, "grdc_p_o20y_tocheck_snap_riverjoin_edit_20240125")
 
+#----------------------------------------- Output variables ------------------------------------------------------------
 grdcp_all = os.path.join(pre_gdb, 'grdc_p_all')
 grdcp_sub = os.path.join(pre_gdb, 'grdc_p_o{}y'.format(min_record_length)) #min_record_length in setup_gloric.py
 
@@ -39,7 +41,7 @@ grdcp_cleanjoin_tab = os.path.join(resdir, '{}.csv'.format(
 ))
 
 #----------------------------------------- Analysis --------------------------------------------------------------------
-def create_points_from_pd(in_pd, x, y, scratch_dir, out_fc, crs, overwrite=True):
+def create_points_from_pd(in_pd, x, y, scratch_dir, out_fc, crs, overwrite=False):
     if (not arcpy.Exists(out_fc)) or overwrite:
         print('Creating {}'.format(out_fc))
         p_csv = os.path.join(scratch_dir, 'tab_temp.csv')
@@ -78,7 +80,7 @@ create_points_from_pd(in_pd=stations_sub_pd,
 
 #Identify grdc stations that have already been geographically QCed by Messager et al. 2021 or Doll et al. 2024 ----------------
 if not arcpy.Exists(grdcp_already_checked):
-    arcpy.Merge_management(inputs=[gires_stationsp],
+    arcpy.Merge_management(inputs=[gires_stationsp], #, others_checked],
                            output=grdcp_already_checked,
                            add_source=True)
 

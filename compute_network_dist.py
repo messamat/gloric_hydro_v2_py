@@ -228,5 +228,5 @@ if not arcpy.Exists(global_netdist_tab):
     arcpy.Merge_management(list(out_tablist.values()),
                            output=global_netdist_tab,
                            add_source='ADD_SOURCE_INFO')
-    arcpy.CopyRows_management(os.path.splitext(global_netdist_tab)[0], global_netdist_tab)
+    arcpy.CopyRows_management(f'{os.path.splitext(global_netdist_tab)[0]}.dbf', global_netdist_tab)
     arcpy.Delete_management(global_netdist_tab)

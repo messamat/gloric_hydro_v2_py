@@ -377,7 +377,7 @@ def fast_joinfield(in_data, in_field, join_table, join_field, fields, round=Fals
             if (round==False) or (join_table_ftypes[fname_orig] in ["Integer", "SmallInteger"]):
                 ftype_dest = join_table_ftypes[fname_orig]
             else:
-                ftype_dest = 'LONG' if ((max(val_dict) > 32767) or (min(val_dict) < -32767)) else 'SHORT'
+                ftype_dest = 'LONG' if ((max(val_dict.values()) > 32767) or (min(val_dict.values()) < -32767)) else 'SHORT'
 
             #Create field in destination table
             arcpy.management.AddField(in_table=in_data,
@@ -385,11 +385,17 @@ def fast_joinfield(in_data, in_field, join_table, join_field, fields, round=Fals
                                       field_type=ftype_dest)
 
             print('Writing in attri_tab')
+            no_join_count=0
             with arcpy.da.UpdateCursor(in_data, [in_field, fname_dest]) as cursor:
                 for row in cursor:
-                    row[1] = factor*val_dict[row[0]]
+                    if row[0] in val_dict:
+                        row[1] = factor*val_dict[row[0]]
+                    else:
+                        no_join_count += 1
                     cursor.updateRow(row)
 
+            # if (no_join_count > 0):
+            #     print(f'{no_join_count} records for field {fname_dest} did not join')
 
 #Take the extent from a dataset and return the extent in the projection of choice
 def project_extent(in_dataset, out_coor_system, out_dataset=None):
